@@ -1,0 +1,14 @@
+# OS cruft
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Editor cruft
+.vscode/
+.idea/
+*.swp
+*~
+
+# Logs / temp
+*.log
+*.tmp
