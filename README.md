@@ -34,9 +34,12 @@ powershell -ExecutionPolicy Bypass -File .\block_mumu_ads.ps1
 
 This blocks outbound traffic to MuMu's known promo endpoints:
 
-- `48.216.202.246` (primary promo/recommendation feed)
 - `34.36.47.246`
-- `34.117.122.6`
+
+`48.216.202.246` and `34.117.122.6` are deliberately not blocked. They were
+included in the first release, but Diablo Immortal also uses both addresses
+while connecting. Rerunning the current script automatically removes those
+older rules while keeping the confirmed MuMu ad block.
 
 Restart MuMu afterwards (existing connections take a minute to time out;
 a restart flushes them instantly). Ads gone.
@@ -90,8 +93,9 @@ Then block it:
   different endpoints — use `-ExtraIp` for those.
 - The script blocks **IPs**, not domains: if NetEase moves their ad service
   to new IPs, ads may return until you block the new ones.
-- Does **not** touch anything inside the emulator itself — games and apps
-  in the instance keep working normally, including Google Play.
+- Does **not** touch anything inside the emulator itself. Because NetEase can
+  reuse infrastructure between MuMu and games, test game connectivity after
+  adding any address with `-ExtraIp`.
 - Some launcher content is cached on disk; if a promo banner lingers after
   blocking, restart MuMu or clear the launcher app data.
 

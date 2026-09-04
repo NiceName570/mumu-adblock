@@ -54,13 +54,19 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# Known MuMu promo/ad endpoints (Google Cloud load balancers fronting
-# NetEase's MuMu services - shared infrastructure, same for all users).
+# Known MuMu promo/ad endpoints.
 # If ads return, check what MuMu processes talk to and add IPs via -ExtraIp.
 $Script:AdEndpoints = @(
-    '48.216.202.246'   # primary promo/recommendation feed
     '34.36.47.246'     # MuMu service backend
-    '34.117.122.6'     # MuMu service backend
+)
+
+# These addresses were previously treated as ad-only, but Diablo Immortal also
+# uses them during startup. Remove either rule name created by older versions.
+$Script:DeprecatedEndpointRules = @(
+    'MuMu-AdBlock: ad endpoint 48.216.202.246'
+    'Block MuMu Ads 48.216.202.246'
+    'MuMu-AdBlock: ad endpoint 34.117.122.6'
+    'Block MuMu Ads 34.117.122.6'
 )
 
 # MuMu's LAN-exposed listener ports:
@@ -73,6 +79,12 @@ $Script:ExposedPortRanges = @(
     '16384-16448'
     '20511'
     '23555-23633'
+    '24576-24640'
+)
+
+$RulePrefixAds   = 'MuMu-AdBlock: ad endpoint'
+$RulePrefixPorts = 'MuMu-AdBlock: LAN port'
+$RulePrefixExtra = 'MuMu-AdBlock: extra endpoint'
 
 function Assert-Admin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -87,7 +99,20 @@ function Assert-Admin {
 
 function Get-OurRules {
     Get-NetFirewallRule -ErrorAction SilentlyContinue |
-        Where-Object { $_.DisplayName -like 'MuMu-AdBlock:*' }
+        Where-Object {
+            $_.DisplayName -like 'MuMu-AdBlock:*' -or
+            $_.DisplayName -like 'Block MuMu Ads *'
+        }
+}
+
+function Remove-DeprecatedEndpointRules {
+    foreach ($name in $Script:DeprecatedEndpointRules) {
+        $rules = @(Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue)
+        foreach ($rule in $rules) {
+            Remove-NetFirewallRule -Name $rule.Name
+            Write-Host "  removed deprecated rule: $($rule.DisplayName)" -ForegroundColor Yellow
+        }
+    }
 }
 
 function Remove-Rules {
@@ -106,8 +131,12 @@ function Remove-Rules {
 
 function Add-OutboundBlock([string]$Ip, [string]$Prefix) {
     $name = "$Prefix $Ip"
-    if (Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue) {
-        Write-Host "  already exists: $name" -ForegroundColor DarkGray
+    $existingRules = @(Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue)
+    if ($Prefix -eq $RulePrefixAds) {
+        $existingRules += @(Get-NetFirewallRule -DisplayName "Block MuMu Ads $Ip" -ErrorAction SilentlyContinue)
+    }
+    if ($existingRules.Count -gt 0) {
+        Write-Host "  already blocked: $Ip" -ForegroundColor DarkGray
         return
     }
     New-NetFirewallRule -DisplayName $name -Direction Outbound -Action Block `
@@ -129,11 +158,33 @@ function Add-InboundPortBlock([string]$PortRange) {
     Write-Host "  blocked inbound from LAN: TCP $PortRange" -ForegroundColor Green
 }
 
+function Test-TcpConnection([string]$Ip, [int]$Port, [int]$TimeoutMilliseconds) {
+    $client = New-Object System.Net.Sockets.TcpClient
+    $asyncResult = $null
+    try {
+        $asyncResult = $client.BeginConnect($Ip, $Port, $null, $null)
+        if (-not $asyncResult.AsyncWaitHandle.WaitOne($TimeoutMilliseconds, $false)) {
+            return $false
+        }
+        $client.EndConnect($asyncResult)
+        return $client.Connected
+    }
+    catch {
+        return $false
+    }
+    finally {
+        if ($null -ne $asyncResult) {
+            $asyncResult.AsyncWaitHandle.Close()
+        }
+        $client.Close()
+    }
+}
+
 function Test-AdEndpointsReachable {
     Write-Host ''
     Write-Host 'Verifying blocks (each should say "blocked"):' -ForegroundColor Cyan
     foreach ($ip in $Script:AdEndpoints) {
-        $ok = Test-Connection -TargetName $ip -TcpPort 443 -TimeoutSeconds 3 -Quiet -ErrorAction SilentlyContinue
+        $ok = Test-TcpConnection $ip 443 3000
         $status = if ($ok) { 'REACHABLE (unexpected!)' } else { 'blocked' }
         $color  = if ($ok) { 'Red' } else { 'Green' }
         Write-Host ("  {0,-16} : {1}" -f $ip, $status) -ForegroundColor $color
@@ -146,6 +197,8 @@ if ($Remove) {
     Remove-Rules
     exit 0
 }
+
+Remove-DeprecatedEndpointRules
 
 Write-Host ''
 Write-Host '=== MuMu AdBlock ===' -ForegroundColor Cyan
@@ -175,10 +228,3 @@ Write-Host 'Done.' -ForegroundColor Green
 Write-Host 'Existing connections may take ~1-2 minutes to time out; restarting'
 Write-Host 'MuMu flushes them immediately.'
 Write-Host 'To undo everything:  .\block_mumu_ads.ps1 -Remove'
-
-    '24576-24640'
-)
-
-$RulePrefixAds   = 'MuMu-AdBlock: ad endpoint'
-$RulePrefixPorts = 'MuMu-AdBlock: LAN port'
-$RulePrefixExtra = 'MuMu-AdBlock: extra endpoint'
