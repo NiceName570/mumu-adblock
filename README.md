@@ -3,6 +3,24 @@
 Stop MuMu Player's launcher ads & promos — and (optionally) close the ports
 it exposes to your LAN — using nothing but Windows Firewall rules.
 
+## Quick start (no typing)
+
+1. Click the green **Code** button → **Download ZIP**, then extract it
+   (right-click the zip → **Extract All**).
+2. Double-click **`Block MuMu Ads.cmd`**.
+3. Windows asks for admin rights — click **Yes**.
+4. Read the result, press **Enter** to close the window, then restart MuMu.
+
+| Double-click | What it does |
+|---|---|
+| `Block MuMu Ads.cmd` | Blocks MuMu's ad endpoints |
+| `Block MuMu Ads + Close LAN Ports.cmd` | Same, plus closes the LAN-exposed ports (see below) |
+| `Undo MuMu AdBlock.cmd` | Removes every rule this tool made |
+
+If Windows warns that the file came from the internet, choose **Run**
+(or **More info → Run anyway**). To skip that warning, right-click the zip →
+**Properties** → tick **Unblock** → **OK** before extracting.
+
 ## The problem
 
 MuMu Player (NetEase's Android emulator) fetches promotional content **at
@@ -26,11 +44,14 @@ just firewall rules you can remove any time.
 
 ### 1. Block the ads
 
-Open **PowerShell as Administrator**, then:
+Double-click `Block MuMu Ads.cmd`, or from PowerShell in this folder:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\block_mumu_ads.ps1
 ```
+
+If PowerShell isn't running as Administrator, the script asks Windows for
+admin rights and finishes in a new window.
 
 This blocks outbound traffic to MuMu's known promo endpoints:
 
@@ -46,6 +67,8 @@ a restart flushes them instantly). Ads gone.
 
 ### 2. (Optional) Close the LAN-exposed ports
 
+Double-click `Block MuMu Ads + Close LAN Ports.cmd`, or:
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\block_mumu_ads.ps1 -IncludePorts
 ```
@@ -55,6 +78,8 @@ Localhost is unaffected — `adb connect 127.0.0.1:7555` on your own PC
 keeps working, so scrcpy/ADB tooling won't break.
 
 ### Undo everything
+
+Double-click `Undo MuMu AdBlock.cmd`, or:
 
 ```powershell
 .\block_mumu_ads.ps1 -Remove
@@ -82,10 +107,13 @@ Then block it:
 .\block_mumu_ads.ps1 -ExtraIp 203.0.113.10
 ```
 
+Several at once: `-ExtraIp 203.0.113.10,203.0.113.11`
+
 ## Requirements
 
 - Windows 10/11, PowerShell 5.1+ (preinstalled)
-- Administrator rights (firewall rules require elevation)
+- Administrator rights (firewall rules require elevation) — the script asks
+  Windows for them itself, just click **Yes**
 
 ## Notes & limitations
 

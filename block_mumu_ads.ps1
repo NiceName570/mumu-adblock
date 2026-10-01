@@ -14,6 +14,11 @@
     Everything is done with standard Windows Firewall rules - fully
     reversible with -Remove, no system files touched.
 
+    Firewall rules need admin rights. Run from a normal (non-admin)
+    window, the script asks Windows for admin and finishes in a new
+    admin window. The .cmd files next to this script do exactly that,
+    so you can just double-click them.
+
 .PARAMETER Remove
     Remove all rules previously created by this script.
 
@@ -24,7 +29,20 @@
 
 .PARAMETER ExtraIp
     Additional IP(s) to block outbound, if MuMu starts using new ad
-    endpoints. Can be specified multiple times.
+    endpoints. Separate several with commas:
+    -ExtraIp 203.0.113.10,203.0.113.11
+
+.PARAMETER KeepWindowOpen
+    Wait for Enter before exiting, so a window opened by double-clicking
+    doesn't close before you can read the result.
+
+.PARAMETER NoElevate
+    Don't ask Windows for admin rights; just print an error if this
+    isn't already an admin session. For scripts and automation.
+
+.EXAMPLE
+    Double-click "Block MuMu Ads.cmd"
+    Blocks the ad endpoints (same as running the script with no options).
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\block_mumu_ads.ps1
@@ -39,7 +57,8 @@
     Removes every rule this script created.
 
 .NOTES
-    Requires Windows PowerShell 5.1+ and an elevated (admin) session.
+    Requires Windows PowerShell 5.1+ and admin rights (asked for
+    automatically unless -NoElevate is used).
     Works with MuMu Player 12 (nx_main / nx_device layout).
     MIT License - share freely.
 #>
@@ -48,11 +67,17 @@
 param(
     [switch]$Remove,
     [switch]$IncludePorts,
-    [string[]]$ExtraIp = @()
+    [string[]]$ExtraIp = @(),
+    [switch]$KeepWindowOpen,
+    [switch]$NoElevate
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# Through `powershell -File` (and the admin relaunch) -ExtraIp arrives as one
+# string like "1.2.3.4,5.6.7.8", so split it into separate IPs here.
+$ExtraIp = @($ExtraIp | ForEach-Object { $_ -split '[,;\s]+' } | Where-Object { $_ })
 
 # Known MuMu promo/ad endpoints.
 # If ads return, check what MuMu processes talk to and add IPs via -ExtraIp.
@@ -86,14 +111,46 @@ $RulePrefixAds   = 'MuMu-AdBlock: ad endpoint'
 $RulePrefixPorts = 'MuMu-AdBlock: LAN port'
 $RulePrefixExtra = 'MuMu-AdBlock: extra endpoint'
 
-function Assert-Admin {
+function Test-IsAdmin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = [Security.Principal.WindowsPrincipal]$id
-    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        Write-Host ''
-        Write-Host 'ERROR: This script must run as Administrator.' -ForegroundColor Red
-        Write-Host 'Right-click PowerShell -> "Run as administrator", then re-run.' -ForegroundColor Yellow
-        exit 1
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Write-NeedsAdmin {
+    Write-Host ''
+    Write-Host 'ERROR: This script must run as Administrator.' -ForegroundColor Red
+    Write-Host 'Right-click PowerShell -> "Run as administrator", then re-run.' -ForegroundColor Yellow
+}
+
+function Start-Elevated {
+    # Re-run this same script in a new admin window with the same options.
+    # -KeepWindowOpen is always added so that window stays up until Enter.
+    # Returns $false if Windows didn't start it (e.g. the prompt was cancelled).
+    if (-not $PSCommandPath) { return $false }
+
+    $exeName = if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh.exe' } else { 'powershell.exe' }
+    $exe = Join-Path $PSHOME $exeName
+
+    $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $PSCommandPath))
+    if ($Remove)                      { $argList += '-Remove' }
+    if ($IncludePorts)                { $argList += '-IncludePorts' }
+    if ($ExtraIp.Count -gt 0)         { $argList += '-ExtraIp', ($ExtraIp -join ',') }
+    if ($WhatIfPreference)            { $argList += '-WhatIf' }
+    if ($ConfirmPreference -eq 'Low') { $argList += '-Confirm' }
+    $argList += '-KeepWindowOpen'
+
+    # -WhatIf/-Confirm were just passed on to the admin window; don't let them
+    # also stop the relaunch itself (on PowerShell versions where they could).
+    $WhatIfPreference = $false
+    $ConfirmPreference = 'High'
+
+    try {
+        Start-Process -FilePath $exe -Verb RunAs -ArgumentList ($argList -join ' ') | Out-Null
+        return $true
+    }
+    catch {
+        return $false
     }
 }
 
@@ -191,40 +248,79 @@ function Test-AdEndpointsReachable {
     }
 }
 
-Assert-Admin
+function Invoke-Block {
+    Remove-DeprecatedEndpointRules
 
-if ($Remove) {
-    Remove-Rules
-    exit 0
-}
-
-Remove-DeprecatedEndpointRules
-
-Write-Host ''
-Write-Host '=== MuMu AdBlock ===' -ForegroundColor Cyan
-Write-Host ''
-
-Write-Host 'Blocking ad/promo endpoints (outbound):' -ForegroundColor Cyan
-foreach ($ip in $Script:AdEndpoints) { Add-OutboundBlock $ip $RulePrefixAds }
-
-foreach ($ip in $ExtraIp) {
-    if ($ip -notmatch '^\d{1,3}(\.\d{1,3}){3}$') {
-        Write-Host "  skipping invalid IP: $ip" -ForegroundColor Yellow
-        continue
-    }
-    Add-OutboundBlock $ip $RulePrefixExtra
-}
-
-if ($IncludePorts) {
     Write-Host ''
-    Write-Host 'Closing LAN-exposed ports (inbound, localhost unaffected):' -ForegroundColor Cyan
-    foreach ($range in $Script:ExposedPortRanges) { Add-InboundPortBlock $range }
+    Write-Host '=== MuMu AdBlock ===' -ForegroundColor Cyan
+    Write-Host ''
+
+    Write-Host 'Blocking ad/promo endpoints (outbound):' -ForegroundColor Cyan
+    foreach ($ip in $Script:AdEndpoints) { Add-OutboundBlock $ip $RulePrefixAds }
+
+    foreach ($ip in $ExtraIp) {
+        if ($ip -notmatch '^\d{1,3}(\.\d{1,3}){3}$') {
+            Write-Host "  skipping invalid IP: $ip" -ForegroundColor Yellow
+            continue
+        }
+        Add-OutboundBlock $ip $RulePrefixExtra
+    }
+
+    if ($IncludePorts) {
+        Write-Host ''
+        Write-Host 'Closing LAN-exposed ports (inbound, localhost unaffected):' -ForegroundColor Cyan
+        foreach ($range in $Script:ExposedPortRanges) { Add-InboundPortBlock $range }
+    }
+
+    Test-AdEndpointsReachable
+
+    Write-Host ''
+    Write-Host 'Done.' -ForegroundColor Green
+    Write-Host 'Existing connections may take ~1-2 minutes to time out; restarting'
+    Write-Host 'MuMu flushes them immediately.'
+    Write-Host 'To undo everything: double-click "Undo MuMu AdBlock.cmd"'
+    Write-Host '                or: .\block_mumu_ads.ps1 -Remove'
 }
 
-Test-AdEndpointsReachable
-
-Write-Host ''
-Write-Host 'Done.' -ForegroundColor Green
-Write-Host 'Existing connections may take ~1-2 minutes to time out; restarting'
-Write-Host 'MuMu flushes them immediately.'
-Write-Host 'To undo everything:  .\block_mumu_ads.ps1 -Remove'
+$exitCode = 0
+$handedOffToAdminWindow = $false
+try {
+    if (-not (Test-IsAdmin)) {
+        if ($NoElevate) {
+            Write-NeedsAdmin
+            $exitCode = 1
+        }
+        else {
+            Write-Host 'Admin rights needed - asking Windows (click Yes if it asks)...' -ForegroundColor Cyan
+            if (Start-Elevated) {
+                $handedOffToAdminWindow = $true
+            }
+            else {
+                Write-Host ''
+                Write-Host "Couldn't get admin rights (the prompt was cancelled or blocked), so nothing was changed." -ForegroundColor Red
+                Write-Host 'Run it again and click Yes, or right-click PowerShell -> "Run as administrator".' -ForegroundColor Yellow
+                $exitCode = 1
+            }
+        }
+    }
+    elseif ($Remove) {
+        Remove-Rules
+    }
+    else {
+        Invoke-Block
+    }
+}
+catch {
+    Write-Host ''
+    Write-Host ($_ | Out-String) -ForegroundColor Red
+    $exitCode = 1
+}
+finally {
+    # Double-clicked windows close as soon as the script ends; wait so the
+    # result can be read. Not needed when the admin window took over.
+    if ($KeepWindowOpen -and -not $handedOffToAdminWindow) {
+        Write-Host ''
+        try { [void](Read-Host 'Press Enter to close this window') } catch { }
+    }
+}
+exit $exitCode

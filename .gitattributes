@@ -1,0 +1,3 @@
+# Keep the .cmd files byte-for-byte as committed (Windows CRLF line endings,
+# no conversion), so cmd.exe reads them right - including from "Download ZIP".
+*.cmd -text
