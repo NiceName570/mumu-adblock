@@ -1,5 +1,12 @@
 # MuMu AdBlock
 
+![Banner](banner.png)
+
+**What it does:** Stops MuMu Player launcher ads & promo endpoints (and optionally closes exposed LAN ports) using only Windows Firewall rules — no drivers, no installs.
+
+**How to use:**
+1. Download / clone this repo. 2. Double-click `Block MuMu Ads.cmd` → click **Yes** on admin prompt. 3. Restart MuMu. Ads blocked. 4. To also close LAN ports: use `Block MuMu Ads + Close LAN Ports.cmd`. 5. Undo anytime: `Undo MuMu AdBlock.cmd`.
+
 Stop MuMu Player's launcher ads & promos — and (optionally) close the ports
 it exposes to your LAN — using nothing but Windows Firewall rules.
 
