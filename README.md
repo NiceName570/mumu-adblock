@@ -1,7 +1,6 @@
 # MuMu AdBlock
 
-Reduce MuMu Player startup ads and remove the identified home-screen promotional widgets, with a reversible **Apply / Undo / Check** menu.
-
+Removed MuMu Player startup ads and remove the identified home-screen promotional widgets made it double click so its easy for everyone.
 ## Quick start
 
 1. Download [mumu_adblock.exe (v2.0.0)](https://github.com/NiceName570/mumu-adblock/releases/download/v2.0.0/mumu_adblock.exe) or the [ZIP](https://github.com/NiceName570/mumu-adblock/releases/download/v2.0.0/mumu_adblock.zip) and extract it.
