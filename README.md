@@ -1,5 +1,7 @@
 # MuMu AdBlock
 
+![MuMu AdBlock banner](banner.png)
+
 Removed MuMu Player startup ads and remove the identified home-screen promotional widgets made it double click so its easy for everyone.
 ## Quick start
 
